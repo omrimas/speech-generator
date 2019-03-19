@@ -5,8 +5,10 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 import unicodedata
+import numpy as np
 
 USE_CUDA = torch.cuda.is_available()
+SEQUENCE_LEN = 2
 device = torch.device("cuda" if USE_CUDA else "cpu")
 speakers = ["Clinton"]
 corpus_name = "Clinton-Trump Corpus"
@@ -75,12 +77,12 @@ class LSTMGenerator(nn.Module):
         # The linear layer that maps from hidden state space to vocabulary space
         self.hidden2word = nn.Linear(hidden_dim, vocab_size)
 
-    def forward(self, word, hidden=None):
-        embeds = self.word_embeddings(word)
+    def forward(self, seq, hidden=None):
+        embeds = self.word_embeddings(seq)
 
-        rnn_output, hidden = self.lstm(embeds.view(1, 1, -1), hidden)
-        voc_space = self.hidden2word(rnn_output)
-        word_scores = F.softmax(voc_space, dim=2)
+        rnn_output, hidden = self.lstm(embeds.view(len(seq), 1, -1), hidden)
+        voc_space = self.hidden2word(rnn_output.view(len(seq), -1))
+        word_scores = F.log_softmax(voc_space, dim=1)
         return word_scores, hidden
 
 
@@ -116,36 +118,35 @@ model.to(device)
 loss_function = nn.NLLLoss()
 optimizer = optim.SGD(model.parameters(), lr=0.1)
 
-for epoch in range(1):
+for epoch in range(5):
 
-    for file in all_speech_files[:10]:
+    for file in all_speech_files[:2]:
         print(file)
-        hidden = None
         current_speech = getSpeech(file)
         speech_indices = speech2indices(current_speech, voc.word2index)
-        speech_indices.append(EOS_token)
-        for i in range(len(speech_indices) - 1):
-            if i % 3 == 0:
-                hidden = None
-            current_word = torch.tensor(speech_indices[i], device=device)
+
+        for i in range(len(speech_indices) - SEQUENCE_LEN):
+            current_seq = torch.tensor(speech_indices[i:i + SEQUENCE_LEN], dtype=torch.long, device=device)
+            target = torch.tensor([speech_indices[i + SEQUENCE_LEN]], dtype=torch.long, device=device)
             model.zero_grad()
-            word_scores, hidden = model(current_word, hidden)
-            target = torch.tensor([speech_indices[i + 1]], device=device)
-            loss = loss_function(word_scores.view(1, -1), target)
-            loss.backward(retain_graph=True)
+            word_scores, _ = model(current_seq)
+            last_word_scores = word_scores[SEQUENCE_LEN - 1].view(1, -1)
+            loss = loss_function(last_word_scores, target)
+            loss.backward()
             optimizer.step()
 
 with torch.no_grad():
-    hidden = None
-    seed = "the"
-    generated_speech = [seed]
-    input_word = torch.tensor([voc.word2index[seed]], device=device)
+    seed = ["the", "people"]
+    generated_speech = seed
+    input_seq = torch.tensor(speech2indices(seed, voc.word2index), dtype=torch.long, device=device)
 
     for i in range(100):
-        word_scores, hidden = model(input_word, hidden)
-        indices = torch.argmax(word_scores, 2)
+        word_scores, _ = model(input_seq)
+        last_word_scores = word_scores[SEQUENCE_LEN - 1].view(1, -1)
+        # chosen_index = np.random.choice(range(voc.num_words), voc.num_words, p=word_scores[SEQUENCE_LEN - 1].cpu())
+        indices = torch.argmax(last_word_scores, 1)
         word_index = indices[0].item()
         generated_speech.append(voc.index2word[word_index])
-        input_word = torch.tensor([word_index], device=device)
+        input_seq = torch.tensor(speech2indices(generated_speech[-2:], voc.word2index), dtype=torch.long, device=device)
 
     print(" ".join(generated_speech))
