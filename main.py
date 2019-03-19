@@ -8,11 +8,10 @@ import unicodedata
 import numpy as np
 
 USE_CUDA = torch.cuda.is_available()
-SEQUENCE_LEN = 2
+SEQUENCE_LEN = 5
 device = torch.device("cuda" if USE_CUDA else "cpu")
 speakers = ["Clinton"]
 corpus_name = "Clinton-Trump Corpus"
-# corpus = os.path.join("data", corpus_name, speaker)
 target_vocabulary = []
 
 
@@ -118,9 +117,9 @@ model.to(device)
 loss_function = nn.NLLLoss()
 optimizer = optim.SGD(model.parameters(), lr=0.1)
 
-for epoch in range(5):
+for epoch in range(1):
 
-    for file in all_speech_files[:2]:
+    for file in all_speech_files[:15]:
         print(file)
         current_speech = getSpeech(file)
         speech_indices = speech2indices(current_speech, voc.word2index)
@@ -136,7 +135,7 @@ for epoch in range(5):
             optimizer.step()
 
 with torch.no_grad():
-    seed = ["the", "people"]
+    seed = ["the", "people", "of", "america", "are"]
     generated_speech = seed
     input_seq = torch.tensor(speech2indices(seed, voc.word2index), dtype=torch.long, device=device)
 
@@ -147,6 +146,6 @@ with torch.no_grad():
         indices = torch.argmax(last_word_scores, 1)
         word_index = indices[0].item()
         generated_speech.append(voc.index2word[word_index])
-        input_seq = torch.tensor(speech2indices(generated_speech[-2:], voc.word2index), dtype=torch.long, device=device)
+        input_seq = torch.tensor(speech2indices(generated_speech[-SEQUENCE_LEN:], voc.word2index), dtype=torch.long, device=device)
 
     print(" ".join(generated_speech))
