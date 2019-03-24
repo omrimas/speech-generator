@@ -1,151 +1,157 @@
-import os
-import re
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 import torch.optim as optim
-import unicodedata
-import numpy as np
+from torch.autograd import Variable
+import math
+import time
+from datetime import datetime
+import os
+import data
+import model
 
+CORPUS_NAME = "Clinton-Trump Corpus"
 USE_CUDA = torch.cuda.is_available()
-SEQUENCE_LEN = 5
+BATCH_SIZE = 20
 device = torch.device("cuda" if USE_CUDA else "cpu")
-speakers = ["Clinton"]
-corpus_name = "Clinton-Trump Corpus"
-target_vocabulary = []
+SEQUENCE_LEN = 10
+STARTED_DATE_STRING = "{0:%Y-%m-%dT%H-%M-%S}".format(datetime.now())
+MODEL_DIR = "models/" + str(STARTED_DATE_STRING)
+
+# Model Params
+EMBEDDING_SIZE = 50
+HIDDEN_SIZE = 128
+LAYERS_NUM = 1
+
+# Training Params
+GRADIENT_CLIP = 0.5
+LOG_INTERVAL = 200
+INITIAL_LEARNING_RATE = 20
+EPOCHS = 50
+
+# MODEL SAVE DIRECTORY
+if not os.path.exists(MODEL_DIR):
+    os.makedirs(MODEL_DIR)
+    print("INITIALIZING Directory: " + MODEL_DIR)
+
+###############################################################################
+# Load data
+###############################################################################
+
+corpus = data.Corpus(CORPUS_NAME)
 
 
-################# Util functions ################################
-def unicodeToAscii(s):
-    return ''.join(
-        c for c in unicodedata.normalize('NFD', s)
-        if unicodedata.category(c) != 'Mn'
-    )
+def batchify(data, bsz):
+    nbatch = data.size(0) // bsz
+    data = data.narrow(0, 0, nbatch * bsz)
+    data = data.view(bsz, -1).t().contiguous()
+    if USE_CUDA:
+        data = data.cuda()
+    return data
 
 
-# Lowercase, trim, and remove non-letter characters
-def normalizeString(s):
-    s = unicodeToAscii(s.lower().strip())
-    s = re.sub(r"\<.*?\>", " ", s)
-    s = re.sub(r"([.!?])", r" \1", s)
-    # s = re.sub(r"[^a-zA-Z.!?]+", r" ", s)
-    s = re.sub(r"[^a-zA-Z]+", r" ", s)
-    s = re.sub(r"\s+", r" ", s).strip()
-    return s
+train_data = batchify(corpus.train, BATCH_SIZE)
+print("\nTraining batch size: " + str(BATCH_SIZE))
 
+###############################################################################
+# Build the model
+###############################################################################
 
-################################################################
+voc_size = corpus.vocabulary.num_words
+print("\n# of tokens in vocabulary: " + str(voc_size))
+model = model.LSTMGenerator(EMBEDDING_SIZE, HIDDEN_SIZE, LAYERS_NUM, voc_size)
+if USE_CUDA:
+    model.cuda()
 
-# Default word tokens
-PAD_token = 0  # Used for padding short sentences
-EOS_token = 1  # End-of-sentence token
-
-
-# Vocabulary class
-class Voc:
-    def __init__(self, name):
-        self.name = name
-        self.word2index = {}
-        self.index2word = {PAD_token: "PAD", EOS_token: "EOS"}
-        self.num_words = 2
-
-    def addFile(self, filePath):
-        with open(filePath, 'r') as f:
-            for line in f:
-                normalized_line = normalizeString(line)
-                for word in normalized_line.split():
-                    self.addWord(word)
-
-    def addWord(self, word):
-        if word not in self.word2index:
-            self.word2index[word] = self.num_words
-            self.index2word[self.num_words] = word
-            self.num_words += 1
-
-
-class LSTMGenerator(nn.Module):
-    def __init__(self, embedding_dim, hidden_dim, vocab_size):
-        super(LSTMGenerator, self).__init__()
-        self.hidden_dim = hidden_dim
-        self.word_embeddings = nn.Embedding(vocab_size, embedding_dim)
-
-        # The LSTM takes word embeddings as inputs, and outputs hidden states
-        # with dimensionality hidden_dim.
-        self.lstm = nn.LSTM(embedding_dim, hidden_dim, 2)
-
-        # The linear layer that maps from hidden state space to vocabulary space
-        self.hidden2word = nn.Linear(hidden_dim, vocab_size)
-
-    def forward(self, seq, hidden=None):
-        embeds = self.word_embeddings(seq)
-
-        rnn_output, hidden = self.lstm(embeds.view(len(seq), 1, -1), hidden)
-        voc_space = self.hidden2word(rnn_output.view(len(seq), -1))
-        word_scores = F.log_softmax(voc_space, dim=1)
-        return word_scores, hidden
-
-
-def getSpeech(filePath):
-    with open(filePath, 'r') as f:
-        seqs = [normalizeString(line) for line in f]
-        seqs = list(filter(lambda x: len(x) > 0, seqs))
-    return ' '.join(seqs).split(' ')
-
-
-def speech2indices(seq, word_to_ix):
-    return [word_to_ix[w] for w in seq]
-
-
-def getAllFiles(corpus_name, speakers):
-    all_speech_files = []
-    for speaker in speakers:
-        speaker_path = os.path.join("data", corpus_name, speaker)
-        speaker_files = [os.path.join(speaker_path, speaker_file) for speaker_file in os.listdir(speaker_path)]
-        all_speech_files += speaker_files
-    return all_speech_files
-
-
-all_speech_files = getAllFiles(corpus_name, speakers)
-
-# prepare data for training
-voc = Voc(corpus_name)
-for speech_file in all_speech_files:
-    voc.addFile(speech_file)
-
-model = LSTMGenerator(128, 128, voc.num_words)
-model.to(device)
-loss_function = nn.NLLLoss()
+criterion = nn.CrossEntropyLoss()
 optimizer = optim.SGD(model.parameters(), lr=0.1)
 
-for epoch in range(1):
 
-    for file in all_speech_files[:15]:
-        print(file)
-        current_speech = getSpeech(file)
-        speech_indices = speech2indices(current_speech, voc.word2index)
+###############################################################################
+# Training code
+###############################################################################
 
-        for i in range(len(speech_indices) - SEQUENCE_LEN):
-            current_seq = torch.tensor(speech_indices[i:i + SEQUENCE_LEN], dtype=torch.long, device=device)
-            target = torch.tensor([speech_indices[i + SEQUENCE_LEN]], dtype=torch.long, device=device)
-            model.zero_grad()
-            word_scores, _ = model(current_seq)
-            last_word_scores = word_scores[SEQUENCE_LEN - 1].view(1, -1)
-            loss = loss_function(last_word_scores, target)
-            loss.backward()
-            optimizer.step()
+def clip_gradient(model, clip):
+    """Computes a gradient clipping coefficient based on gradient norm."""
+    totalnorm = 0
+    for p in model.parameters():
+        modulenorm = p.grad.data.norm()
+        totalnorm += modulenorm ** 2
+    totalnorm = math.sqrt(totalnorm)
+    return min(1, GRADIENT_CLIP / (totalnorm + 1e-6))
 
-with torch.no_grad():
-    seed = ["the", "people", "of", "america", "are"]
-    generated_speech = seed
-    input_seq = torch.tensor(speech2indices(seed, voc.word2index), dtype=torch.long, device=device)
 
-    for i in range(100):
-        word_scores, _ = model(input_seq)
-        last_word_scores = word_scores[SEQUENCE_LEN - 1].view(1, -1)
-        # chosen_index = np.random.choice(range(voc.num_words), voc.num_words, p=word_scores[SEQUENCE_LEN - 1].cpu())
-        indices = torch.argmax(last_word_scores, 1)
-        word_index = indices[0].item()
-        generated_speech.append(voc.index2word[word_index])
-        input_seq = torch.tensor(speech2indices(generated_speech[-SEQUENCE_LEN:], voc.word2index), dtype=torch.long, device=device)
+def repackage_hidden(h):
+    """Wraps hidden states in new Variables, to detach them from their history."""
+    if type(h) == torch.Tensor:
+        return Variable(h.data)
+    else:
+        return tuple(repackage_hidden(v) for v in h)
 
-    print(" ".join(generated_speech))
+
+def get_batch(source, i, evaluation=False):
+    seq_len = min(SEQUENCE_LEN, len(source) - 1 - i)
+    data = Variable(source[i:i + seq_len], volatile=evaluation)
+    target = Variable(source[i + 1:i + 1 + seq_len].view(-1))
+    return data, target
+
+
+def train():
+    total_loss = 0
+    start_time = time.time()
+    ntokens = corpus.vocabulary.num_words
+    hidden = model.init_hidden(BATCH_SIZE)
+    for batch, i in enumerate(range(0, train_data.size(0) - 1, SEQUENCE_LEN)):
+        data, targets = get_batch(train_data, i)
+        hidden = repackage_hidden(hidden)
+        model.zero_grad()
+        output, hidden = model(data, hidden)
+        loss = criterion(output.view(-1, ntokens), targets)
+        loss.backward()
+        optimizer.step()
+        # clipped_lr = lr * clip_gradient(model, GRADIENT_CLIP)
+        # for p in model.parameters():
+        #     p.data.add_(-clipped_lr, p.grad.data)
+
+        total_loss += loss.data
+
+        if batch % LOG_INTERVAL == 0 and batch > 0:
+            cur_loss = total_loss.item() / LOG_INTERVAL
+            elapsed = time.time() - start_time
+            print('| epoch {:3d} | {:5d}/{:5d} batches | lr {:02.2f} | ms/batch {:5.2f} | '
+                  'loss {:5.2f} | ppl {:8.2f}'.format(
+                epoch, batch, len(train_data) // SEQUENCE_LEN, lr,
+                              elapsed * 1000 / LOG_INTERVAL, cur_loss, math.exp(cur_loss)))
+            total_loss = 0
+            start_time = time.time()
+
+
+# Loop over epochs.
+lr = INITIAL_LEARNING_RATE
+prev_val_loss = None
+val_loss = 0.0
+
+if prev_val_loss and val_loss > prev_val_loss:
+    if lr > 0.01:
+        lr /= 4
+
+print("Learning rate: " + str(lr))
+
+for epoch in range(1, EPOCHS + 1):
+    epoch_start_time = time.time()
+    train()
+    # val_loss = evaluate(val_data)
+
+    t1 = '-' * 89
+    t2 = '\n| end of epoch {:3d} | time: {:5.2f}s | valid loss {:5.4f} | valid ppl {:8.2f}\n'.format(epoch, (
+            time.time() - epoch_start_time), val_loss, math.exp(val_loss))
+    t3 = '-' * 89
+    ta = t1 + t2 + t3
+    print(ta)
+
+    # SAVE MODEL
+    model_name = MODEL_DIR + '/model-{:s}-emsize-{:d}-nhid_{:d}-nlayers_{:d}-batch_size_{:d}-epoch_{:d}'.format(
+        "LSTM", EMBEDDING_SIZE, HIDDEN_SIZE, LAYERS_NUM, BATCH_SIZE, epoch) + '.pt'
+    print("SAVING: " + model_name)
+    print('=' * 89)
+    print(" ")
+    torch.save(model, model_name)
