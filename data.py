@@ -3,7 +3,11 @@ import os
 import unicodedata
 import torch
 
-speakers = ["Clinton", "Trump"]
+speakers = ["Clinton", "Trump", "adams", "arthur", "bharrison", "buchanan", "bush", "carter", "cleveland", "coolidge",
+            "eisenhower", "fdroosevelt", "fillmore", "ford", "garfield", "grant", "gwbush", "harding", "harrison",
+            "hayes", "hoover", "jackson", "jefferson", "johnson", "jqadams", "kennedy", "lbjohnson", "lincoln",
+            "madison", "mckinley", "monroe", "nixon", "obama", "pierce", "polk", "reagan", "roosevelt", "taft",
+            "taylor", "truman", "tyler", "vanburen", "washington", "wilson"]
 EOS_token = 0  # End-of-sentence token
 
 

@@ -8,6 +8,7 @@ from datetime import datetime
 import os
 import data
 import model
+import glove
 
 CORPUS_NAME = "Clinton-Trump Corpus"
 USE_CUDA = torch.cuda.is_available()
@@ -20,13 +21,13 @@ MODEL_DIR = "models/" + str(STARTED_DATE_STRING)
 # Model Params
 EMBEDDING_SIZE = 50
 HIDDEN_SIZE = 128
-LAYERS_NUM = 1
+LAYERS_NUM = 6
 
 # Training Params
 GRADIENT_CLIP = 0.5
 LOG_INTERVAL = 200
 INITIAL_LEARNING_RATE = 20
-EPOCHS = 50
+EPOCHS = 10
 
 # MODEL SAVE DIRECTORY
 if not os.path.exists(MODEL_DIR):
@@ -58,12 +59,15 @@ print("\nTraining batch size: " + str(BATCH_SIZE))
 
 voc_size = corpus.vocabulary.num_words
 print("\n# of tokens in vocabulary: " + str(voc_size))
-model = model.LSTMGenerator(EMBEDDING_SIZE, HIDDEN_SIZE, LAYERS_NUM, voc_size)
+
+glove_embedding = glove.GloveEmbedding(corpus.vocabulary).createLayer()
+model = model.LSTMGenerator(EMBEDDING_SIZE, HIDDEN_SIZE, LAYERS_NUM, voc_size, glove_embedding)
 if USE_CUDA:
     model.cuda()
 
 criterion = nn.CrossEntropyLoss()
-optimizer = optim.SGD(model.parameters(), lr=0.1)
+learning_rate = 0.0001
+optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
 
 ###############################################################################

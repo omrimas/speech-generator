@@ -1,12 +1,11 @@
 import torch.nn as nn
 from torch.autograd import Variable
-import torch.nn.functional as F
 
 
 class LSTMGenerator(nn.Module):
-    def __init__(self, embedding_dim, hidden_dim, layers_num, vocab_size):
+    def __init__(self, embedding_dim, hidden_dim, layers_num, vocab_size, embedding_layer):
         super(LSTMGenerator, self).__init__()
-        self.word_embeddings = nn.Embedding(vocab_size, embedding_dim)
+        self.word_embeddings = embedding_layer
         self.lstm = nn.LSTM(embedding_dim, hidden_dim, layers_num)
         self.hidden2word = nn.Linear(hidden_dim, vocab_size)
 

@@ -13,7 +13,7 @@ if not os.path.exists(directory):
 
 CORPUS_NAME = "Clinton-Trump Corpus"
 USE_CUDA = torch.cuda.is_available()
-MODEL_CHECKPOINT = "models/2019-03-24T17-19-39/model-LSTM-emsize-50-nhid_128-nlayers_1-batch_size_20-epoch_50.pt"
+MODEL_CHECKPOINT = "models/2019-03-25T15-36-29/model-LSTM-emsize-50-nhid_128-nlayers_6-batch_size_20-epoch_10.pt"
 WORDS_TO_GEN = 100
 TEMPRATURE = 1
 
