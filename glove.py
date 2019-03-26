@@ -4,6 +4,7 @@ import bcolz
 import pickle
 import torch
 import torch.nn as nn
+from scipy.spatial import distance
 
 glove_path = os.path.join("data", "glove")
 
@@ -39,3 +40,9 @@ class GloveEmbedding(object):
             emb_layer.weight.requires_grad = False
 
         return emb_layer
+
+    def getSimilarWordIdx(self, wordIdx):
+        word_vector = self.weights_matrix[wordIdx]
+        distances = distance.cdist([word_vector], self.weights_matrix, "cosine")[0]
+        # print(distances)
+        return np.argsort(distances)[1:11]

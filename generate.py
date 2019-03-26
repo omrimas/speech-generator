@@ -5,6 +5,7 @@ import torch
 from torch.autograd import Variable
 from datetime import datetime
 import data
+import glove
 
 started_datestring = "{0:%Y-%m-%dT%H-%M-%S}".format(datetime.now())
 directory = "GENERATED/" + started_datestring + '/'
@@ -13,9 +14,10 @@ if not os.path.exists(directory):
 
 CORPUS_NAME = "Clinton-Trump Corpus"
 USE_CUDA = torch.cuda.is_available()
-MODEL_CHECKPOINT = "models/2019-03-25T15-36-29/model-LSTM-emsize-50-nhid_128-nlayers_6-batch_size_20-epoch_10.pt"
+MODEL_CHECKPOINT = "models/2019-03-26T12-20-25/model-LSTM-emsize-50-nhid_128-nlayers_6-batch_size_20-epoch_25.pt"
 WORDS_TO_GEN = 100
 TEMPRATURE = 1
+SWITCH_WORDS = False
 
 while (True):
     with open(MODEL_CHECKPOINT, 'rb') as f:
@@ -26,6 +28,7 @@ while (True):
             model.cpu()
 
         corpus = data.Corpus(CORPUS_NAME)
+        glove_embedding = glove.GloveEmbedding(corpus.vocabulary)
         ntokens = corpus.vocabulary.num_words
         hidden = model.init_hidden(1)
         input = Variable(torch.rand(1, 1).mul(ntokens).long(), volatile=True)
@@ -43,8 +46,17 @@ while (True):
             output, hidden = model(input, hidden)
             word_weights = output.squeeze().data.div(TEMPRATURE).exp().cpu()
             word_idx = torch.multinomial(word_weights, 1)[0]
-            input.data.fill_(word_idx)
             word = corpus.vocabulary.index2word[word_idx.item()]
+
+            # set next input
+            if SWITCH_WORDS:
+                # print("getting different but similar word to '%s'" % (word))
+                similar_words_idx = glove_embedding.getSimilarWordIdx(word_idx)
+                word_idx = similar_words_idx[5]
+                # for sim_word_idx in similar_words_idx:
+                #     print(corpus.vocabulary.index2word[sim_word_idx])
+
+            input.data.fill_(word_idx)
 
             if word == 'EOS':
                 word = '\n'
