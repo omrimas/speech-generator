@@ -7,7 +7,7 @@ To model was trained on a corpus of 1080 american political speeches taken from 
 http://www.thegrammarlab.com/?nor-portfolio=corpus-of-presidential-speeches-cops-and-a-clintontrump-corpus
 
 
-###Word Embedding
+### Word Embedding
 For the word embedding layer, I used a pre-trained GLoVE vectors. 
 More specifically, the "Wikipedia 2014 + Gigaword 5" version which is the smallest file (glove.6B.zip) was trained on a 
 corpus of 6 billion tokens and contains a vocabulary of 400 thousand tokens.  
